@@ -1,0 +1,1 @@
+"""Hardened monitoring agent components."""

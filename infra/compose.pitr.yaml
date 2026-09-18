@@ -1,0 +1,65 @@
+# Opt-in overlay for encrypted WAL archiving and backups.
+# External volumes must be provisioned on encrypted, access-controlled storage.
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=300s
+      - -c
+      - archive_command=/usr/bin/env bash /opt/nexus/pitr-archive-wal.sh %p %f
+    environment:
+      BACKUP_RECIPIENT_CERT: /run/nexus-backup/recipient.crt
+      WAL_ARCHIVE_DIR: /var/lib/postgresql/wal_archive
+    volumes:
+      - nexus_wal_archive:/var/lib/postgresql/wal_archive
+      - ./postgres/pitr-archive-wal.sh:/opt/nexus/pitr-archive-wal.sh:ro
+      - ./postgres/pitr-check-archive-lag.sh:/opt/nexus/pitr-check-archive-lag.sh:ro
+      - ${NEXUS_BACKUP_RECIPIENT_CERT:?NEXUS_BACKUP_RECIPIENT_CERT is required}:/run/nexus-backup/recipient.crt:ro
+
+  logical-backup:
+    profiles: ["pitr-tools"]
+    image: postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+    entrypoint: ["bash", "/opt/nexus/backup-logical.sh"]
+    environment:
+      NEXUS_POSTGRES_HOST: postgres
+      NEXUS_POSTGRES_PORT: "5432"
+      NEXUS_POSTGRES_DB: ${NEXUS_POSTGRES_DB:-nexus_it}
+      NEXUS_POSTGRES_USER: ${NEXUS_POSTGRES_USER:-nexus_bootstrap}
+      NEXUS_POSTGRES_PASSWORD: ${NEXUS_POSTGRES_PASSWORD:?NEXUS_POSTGRES_PASSWORD is required}
+      BACKUP_OUTPUT_DIR: /var/backups/nexus
+      BACKUP_RECIPIENT_CERT: /run/nexus-backup/recipient.crt
+    volumes:
+      - nexus_backup_artifacts:/var/backups/nexus
+      - ./postgres/backup-logical.sh:/opt/nexus/backup-logical.sh:ro
+      - ${NEXUS_BACKUP_RECIPIENT_CERT:?NEXUS_BACKUP_RECIPIENT_CERT is required}:/run/nexus-backup/recipient.crt:ro
+    networks: [private]
+
+  base-backup:
+    profiles: ["pitr-tools"]
+    image: postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+    entrypoint: ["bash", "/opt/nexus/backup-base.sh"]
+    environment:
+      NEXUS_POSTGRES_HOST: postgres
+      NEXUS_POSTGRES_PORT: "5432"
+      NEXUS_POSTGRES_USER: ${NEXUS_POSTGRES_USER:-nexus_bootstrap}
+      NEXUS_POSTGRES_PASSWORD: ${NEXUS_POSTGRES_PASSWORD:?NEXUS_POSTGRES_PASSWORD is required}
+      BACKUP_OUTPUT_DIR: /var/backups/nexus
+      BACKUP_RECIPIENT_CERT: /run/nexus-backup/recipient.crt
+    volumes:
+      - nexus_backup_artifacts:/var/backups/nexus
+      - ./postgres/backup-base.sh:/opt/nexus/backup-base.sh:ro
+      - ${NEXUS_BACKUP_RECIPIENT_CERT:?NEXUS_BACKUP_RECIPIENT_CERT is required}:/run/nexus-backup/recipient.crt:ro
+    networks: [private]
+
+volumes:
+  nexus_wal_archive:
+    external: true
+    name: ${NEXUS_WAL_ARCHIVE_VOLUME:?NEXUS_WAL_ARCHIVE_VOLUME is required}
+  nexus_backup_artifacts:
+    external: true
+    name: ${NEXUS_BACKUP_ARTIFACTS_VOLUME:?NEXUS_BACKUP_ARTIFACTS_VOLUME is required}

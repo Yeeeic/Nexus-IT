@@ -1,0 +1,23 @@
+# PyInstaller output
+dist/
+.build-work/
+__pycache__/
+*.pyc
+
+# Runtime embebido descargado
+.build-cache/
+
+# Secretos — NUNCA rastrear
+agent_config.json
+.token.dpapi
+agent.db
+actions.sqlite3
+
+# Binarios legacy eliminados (Python 3.8) — no re-añadir
+*.pyd
+*.dll
+*.cat
+python*.zip
+python*.exe
+pythonw.exe
+*.tmp

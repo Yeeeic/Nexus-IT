@@ -1,0 +1,247 @@
+name: nexus-it
+
+services:
+  postgres:
+    image: postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+    environment:
+      POSTGRES_DB: ${NEXUS_POSTGRES_DB:-nexus_it}
+      POSTGRES_USER: ${NEXUS_POSTGRES_USER:-nexus_app}
+      POSTGRES_PASSWORD: ${NEXUS_POSTGRES_PASSWORD:?NEXUS_POSTGRES_PASSWORD is required}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: "no"
+    networks:
+      - private
+
+  redis:
+    image: redis:7.2.15-alpine@sha256:05a97a479bc73de66f087dc05b569010772880f778cc8671fa6b8aadee32e5c6
+    environment:
+      NEXUS_REDIS_PASSWORD: ${NEXUS_REDIS_PASSWORD:?NEXUS_REDIS_PASSWORD is required}
+    command:
+      - /bin/sh
+      - -c
+      - exec redis-server --appendonly no --requirepass "$$NEXUS_REDIS_PASSWORD"
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${NEXUS_REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: "no"
+    networks:
+      - private
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      NEXUS_ENV: ${NEXUS_ENV:-development}
+      NEXUS_ALLOWED_ORIGINS: ${NEXUS_ALLOWED_ORIGINS:?NEXUS_ALLOWED_ORIGINS is required}
+      NEXUS_ACTION_PRIVATE_KEY: ${NEXUS_ACTION_PRIVATE_KEY:?NEXUS_ACTION_PRIVATE_KEY is required}
+      NEXUS_ACTION_KEY_VERSION: ${NEXUS_ACTION_KEY_VERSION:-1}
+      NEXUS_SERVER_PEPPER: ${NEXUS_SERVER_PEPPER:?NEXUS_SERVER_PEPPER is required}
+      NEXUS_DATABASE_HOST: postgres
+      NEXUS_DATABASE_PORT: "5432"
+      NEXUS_DATABASE_NAME: ${NEXUS_POSTGRES_DB:-nexus_it}
+      NEXUS_DATABASE_USER: nexus_runtime
+      NEXUS_DATABASE_PASSWORD: ${NEXUS_RUNTIME_POSTGRES_PASSWORD:?NEXUS_RUNTIME_POSTGRES_PASSWORD is required}
+      NEXUS_MAINTENANCE_DATABASE_HOST: postgres
+      NEXUS_MAINTENANCE_DATABASE_PORT: "5432"
+      NEXUS_MAINTENANCE_DATABASE_NAME: ${NEXUS_POSTGRES_DB:-nexus_it}
+      NEXUS_MAINTENANCE_DATABASE_USER: nexus_maintenance_runtime
+      NEXUS_MAINTENANCE_DATABASE_PASSWORD: ${NEXUS_MAINTENANCE_POSTGRES_PASSWORD:?NEXUS_MAINTENANCE_POSTGRES_PASSWORD is required}
+      NEXUS_REDIS_HOST: redis
+      NEXUS_REDIS_PORT: "6379"
+      NEXUS_REDIS_DATABASE: "0"
+      NEXUS_REDIS_PASSWORD: ${NEXUS_REDIS_PASSWORD:?NEXUS_REDIS_PASSWORD is required}
+      NEXUS_SMTP_HOST: ${NEXUS_SMTP_HOST:?NEXUS_SMTP_HOST is required}
+      NEXUS_SMTP_PORT: ${NEXUS_SMTP_PORT:-587}
+      NEXUS_SMTP_USERNAME: ${NEXUS_SMTP_USERNAME:?NEXUS_SMTP_USERNAME is required}
+      NEXUS_SMTP_PASSWORD: ${NEXUS_SMTP_PASSWORD:?NEXUS_SMTP_PASSWORD is required}
+      NEXUS_SMTP_FROM: ${NEXUS_SMTP_FROM:?NEXUS_SMTP_FROM is required}
+      NEXUS_PASSWORD_RESET_URL: ${NEXUS_PASSWORD_RESET_URL:?NEXUS_PASSWORD_RESET_URL is required}
+      NEXUS_ATTACHMENTS_ROOT: ${NEXUS_ATTACHMENTS_ROOT:-/var/lib/nexus/attachments}
+    ports:
+      - "${NEXUS_BIND_IP:-0.0.0.0}:${NEXUS_API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - attachments_data:/var/lib/nexus/attachments
+      - ../backend:/app/backend:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    networks:
+      - private
+      - edge
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${NEXUS_BIND_IP:-0.0.0.0}:${NEXUS_FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:80/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/cache/nginx:size=16m,mode=1777,uid=101,gid=101
+      - /var/run:size=4m,mode=1777,uid=101,gid=101
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    networks:
+      - edge
+
+  migrate:
+    profiles:
+      - tools
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    command:
+      - alembic
+      - --config
+      - backend/alembic.ini
+      - upgrade
+      - head
+    environment:
+      NEXUS_POSTGRES_HOST: postgres
+      NEXUS_POSTGRES_PORT: "5432"
+      NEXUS_POSTGRES_DB: ${NEXUS_POSTGRES_DB:-nexus_it}
+      NEXUS_POSTGRES_USER: ${NEXUS_POSTGRES_USER:-nexus_bootstrap}
+      NEXUS_POSTGRES_PASSWORD: ${NEXUS_POSTGRES_PASSWORD:?NEXUS_POSTGRES_PASSWORD is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app/backend:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    networks:
+      - private
+
+  provision-runtime:
+    profiles:
+      - tools
+    image: postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+    entrypoint:
+      - /bin/sh
+      - /opt/nexus/provision-runtime.sh
+    environment:
+      NEXUS_POSTGRES_HOST: postgres
+      NEXUS_POSTGRES_PORT: "5432"
+      NEXUS_POSTGRES_DB: ${NEXUS_POSTGRES_DB:-nexus_it}
+      NEXUS_POSTGRES_USER: ${NEXUS_POSTGRES_USER:-nexus_bootstrap}
+      NEXUS_POSTGRES_PASSWORD: ${NEXUS_POSTGRES_PASSWORD:?NEXUS_POSTGRES_PASSWORD is required}
+      NEXUS_RUNTIME_POSTGRES_PASSWORD: ${NEXUS_RUNTIME_POSTGRES_PASSWORD:?NEXUS_RUNTIME_POSTGRES_PASSWORD is required}
+      NEXUS_MAINTENANCE_POSTGRES_PASSWORD: ${NEXUS_MAINTENANCE_POSTGRES_PASSWORD:?NEXUS_MAINTENANCE_POSTGRES_PASSWORD is required}
+    volumes:
+      - ./postgres/provision-runtime.sh:/opt/nexus/provision-runtime.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    networks:
+      - private
+
+  seed-admin:
+    profiles:
+      - tools
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    command:
+      - python
+      - -m
+      - backend.scripts.seed_admin
+    environment:
+      NEXUS_POSTGRES_HOST: postgres
+      NEXUS_POSTGRES_PORT: "5432"
+      NEXUS_POSTGRES_DB: ${NEXUS_POSTGRES_DB:-nexus_it}
+      NEXUS_POSTGRES_USER: ${NEXUS_POSTGRES_USER:-nexus_bootstrap}
+      NEXUS_POSTGRES_PASSWORD: ${NEXUS_POSTGRES_PASSWORD:?NEXUS_POSTGRES_PASSWORD is required}
+      NEXUS_SEED_ADMIN_EMAIL: ${NEXUS_SEED_ADMIN_EMAIL:-}
+      NEXUS_SEED_ADMIN_PASSWORD: ${NEXUS_SEED_ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ../backend:/app/backend:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    networks:
+      - private
+
+networks:
+  edge:
+    driver: bridge
+  private:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  attachments_data:

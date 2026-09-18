@@ -1,0 +1,134 @@
+name: nexus-pitr-test
+
+x-postgres-image: &postgres-image postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+
+services:
+  storage-init:
+    image: *postgres-image
+    entrypoint: ["bash", "-ceu"]
+    command:
+      - |
+        chown postgres:postgres /archive /backups /restore
+        chmod 700 /archive /backups /restore
+    volumes:
+      - wal_archive:/archive
+      - backup_artifacts:/backups
+      - restore_root:/restore
+    networks: [pitr_private]
+
+  source:
+    image: *postgres-image
+    environment:
+      POSTGRES_DB: nexus_pitr
+      POSTGRES_USER: nexus_pitr
+      POSTGRES_PASSWORD: ${NEXUS_PITR_PASSWORD:?NEXUS_PITR_PASSWORD is required}
+      BACKUP_RECIPIENT_CERT: /run/nexus-pitr/recipient.crt
+      WAL_ARCHIVE_DIR: /var/lib/postgresql/wal_archive
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=5s
+      - -c
+      - wal_keep_size=128MB
+      - -c
+      - archive_command=/usr/bin/env bash /opt/nexus/pitr-archive-wal.sh %p %f
+      - -c
+      - hba_file=/run/nexus-pitr/pg_hba.conf
+    volumes:
+      - source_data:/var/lib/postgresql/data
+      - wal_archive:/var/lib/postgresql/wal_archive
+      - ./postgres/pitr-archive-wal.sh:/opt/nexus/pitr-archive-wal.sh:ro
+      - ./postgres/pitr-check-archive-lag.sh:/opt/nexus/pitr-check-archive-lag.sh:ro
+      - ./postgres/pitr-test-pg_hba.conf:/run/nexus-pitr/pg_hba.conf:ro
+      - ${NEXUS_PITR_KEY_DIR:?NEXUS_PITR_KEY_DIR is required}/recipient.crt:/run/nexus-pitr/recipient.crt:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus_pitr -d nexus_pitr"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    networks: [pitr_private]
+
+  base-backup:
+    image: *postgres-image
+    profiles: ["tools"]
+    user: "999:999"
+    entrypoint: ["bash", "/opt/nexus/backup-base.sh"]
+    environment:
+      NEXUS_POSTGRES_HOST: source
+      NEXUS_POSTGRES_PORT: "5432"
+      NEXUS_POSTGRES_USER: nexus_pitr
+      NEXUS_POSTGRES_PASSWORD: ${NEXUS_PITR_PASSWORD:?NEXUS_PITR_PASSWORD is required}
+      BASE_BACKUP_OUTPUT_FILE: /backups/base.tar.cms
+      BACKUP_RECIPIENT_CERT: /run/nexus-pitr/recipient.crt
+    volumes:
+      - backup_artifacts:/backups
+      - ./postgres/backup-base.sh:/opt/nexus/backup-base.sh:ro
+      - ${NEXUS_PITR_KEY_DIR:?NEXUS_PITR_KEY_DIR is required}/recipient.crt:/run/nexus-pitr/recipient.crt:ro
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    networks: [pitr_private]
+
+  restore-prepare:
+    image: *postgres-image
+    profiles: ["tools"]
+    entrypoint: ["bash", "-ceu"]
+    command:
+      - |
+        install -d -o postgres -g postgres "/var/lib/postgresql/pitr-test/$${NEXUS_PITR_TEST_ID}"
+        install -m 600 -o postgres -g postgres /run/nexus-pitr/recipient.key "/var/lib/postgresql/pitr-test/$${NEXUS_PITR_TEST_ID}/recipient.key"
+        install -m 644 -o postgres -g postgres /run/nexus-pitr/recipient.crt "/var/lib/postgresql/pitr-test/$${NEXUS_PITR_TEST_ID}/recipient.crt"
+        exec gosu postgres bash /opt/nexus/pitr-restore.sh
+    environment:
+      NEXUS_PITR_TEST_ID: ${NEXUS_PITR_TEST_ID:?NEXUS_PITR_TEST_ID is required}
+      PGDATA: /var/lib/postgresql/pitr-test/${NEXUS_PITR_TEST_ID:?NEXUS_PITR_TEST_ID is required}/data
+      BASE_BACKUP_CMS: /backups/base.tar.cms
+      # Source stack starts before target time is known; rehearsal exports the real value before restore-prepare.
+      RECOVERY_TARGET_TIME: ${RECOVERY_TARGET_TIME:-1970-01-01T00:00:00Z}
+      BACKUP_RECIPIENT_CERT: /var/lib/postgresql/pitr-test/${NEXUS_PITR_TEST_ID:?NEXUS_PITR_TEST_ID is required}/recipient.crt
+      BACKUP_RECIPIENT_KEY: /var/lib/postgresql/pitr-test/${NEXUS_PITR_TEST_ID:?NEXUS_PITR_TEST_ID is required}/recipient.key
+    volumes:
+      - restore_root:/var/lib/postgresql/pitr-test
+      - backup_artifacts:/backups:ro
+      - ./postgres/pitr-restore.sh:/opt/nexus/pitr-restore.sh:ro
+      - ${NEXUS_PITR_KEY_DIR:?NEXUS_PITR_KEY_DIR is required}/recipient.crt:/run/nexus-pitr/recipient.crt:ro
+      - ${NEXUS_PITR_KEY_DIR:?NEXUS_PITR_KEY_DIR is required}/recipient.key:/run/nexus-pitr/recipient.key:ro
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    networks: [pitr_private]
+
+  restored:
+    image: *postgres-image
+    environment:
+      PGDATA: /var/lib/postgresql/pitr-test/${NEXUS_PITR_TEST_ID:?NEXUS_PITR_TEST_ID is required}/data
+      WAL_ARCHIVE_DIR: /var/lib/postgresql/wal_archive
+      BACKUP_RECIPIENT_CERT: /var/lib/postgresql/pitr-test/${NEXUS_PITR_TEST_ID:?NEXUS_PITR_TEST_ID is required}/recipient.crt
+      BACKUP_RECIPIENT_KEY: /var/lib/postgresql/pitr-test/${NEXUS_PITR_TEST_ID:?NEXUS_PITR_TEST_ID is required}/recipient.key
+    volumes:
+      - restore_root:/var/lib/postgresql/pitr-test
+      - wal_archive:/var/lib/postgresql/wal_archive:ro
+      - ./postgres/pitr-restore-wal.sh:/opt/nexus/pitr-restore-wal.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus_pitr -d nexus_pitr"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    networks: [pitr_private]
+
+networks:
+  pitr_private:
+    internal: true
+
+volumes:
+  source_data:
+  wal_archive:
+  backup_artifacts:
+  restore_root:

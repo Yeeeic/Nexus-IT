@@ -1,0 +1,9 @@
+# Development override – exposes database ports to the host so the
+# backend can run outside Docker with hot-reload.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

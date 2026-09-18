@@ -1,0 +1,12 @@
+title = "NEXUS IT secret detection"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "nexus-agent-token"
+description = "NEXUS IT device token"
+regex = '''(?i)(?:device_token|nexus_agent_token)["'\s:=]+([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[a-z0-9_-]{43})'''
+secretGroup = 1
+entropy = 3.5
+keywords = ["device_token", "nexus_agent_token"]

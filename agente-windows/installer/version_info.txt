@@ -1,0 +1,35 @@
+# UTF-8
+#
+# For more details about fixed file info 'ffi' see:
+# https://docs.microsoft.com/en-us/windows/win32/menurc/vs-fixedfileinfo
+#
+# For more details about StringFileInfo see:
+# https://docs.microsoft.com/en-us/windows/win32/menurc/stringfileinfo-block
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,          # VOS_NT_WINDOWS32
+    fileType=0x1,        # VFT_APP
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'040904B0',     # 0409 = US English, 04B0 = Unicode
+        [StringStruct(u'CompanyName', u'NEXUS IT'),
+        StringStruct(u'FileDescription', u'NEXUS IT Agent - Instalador y Servicio'),
+        StringStruct(u'FileVersion', u'1.0.0.0'),
+        StringStruct(u'InternalName', u'nexus-agent-setup'),
+        StringStruct(u'LegalCopyright', u'Copyright (c) NEXUS IT'),
+        StringStruct(u'OriginalFilename', u'nexus-agent-setup.exe'),
+        StringStruct(u'ProductName', u'NEXUS IT Agent'),
+        StringStruct(u'ProductVersion', u'1.0.0.0')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)

@@ -1,0 +1,54 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+agent/agent_config.json
+agent/*.db
+agent/*.db-wal
+agent/*.db-shm
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Runtime data and test outputs
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.log
+.pytest*/
+.pytest_cache/
+.pytest_temp/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+
+# Dependencies and generated artifacts
+.venv/
+venv/
+node_modules/
+dist/
+build/
+coverage/
+*.zip
+*.exe
+*.pkg
+agente-windows/.build-work/
+agente-windows/.build-cache/
+
+# Local tools and private workspace metadata
+.git/
+.idea/
+.agents/
+.obsidian/
+Automatizacion/
+.DS_Store
+Thumbs.db
+
+# Generated API and local seed data
+openapi_dump.json
+skills-lock.json
+scripts/seed_*.sql

@@ -1,0 +1,9 @@
+{
+  "server_url": "https://nexus.example.com",
+  "device_id": "00000000-0000-4000-8000-000000000000",
+  "hostname": "example-host",
+  "inventory_interval": 300,
+  "public_keys": {
+    "1": "<base64-encoded-ed25519-public-key>"
+  }
+}

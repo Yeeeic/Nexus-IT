@@ -1,0 +1,32 @@
+services:
+  backend:
+    ports: !override
+      - "127.0.0.1:18000:8000"
+  frontend:
+    ports: !override
+      - "127.0.0.1:18080:80"
+  e2e-runner:
+    profiles: [tools]
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    command: [python, /app/tests/e2e/exercise.py]
+    environment:
+      NEXUS_E2E_EMAIL: ${NEXUS_SEED_ADMIN_EMAIL}
+      NEXUS_E2E_PASSWORD: ${NEXUS_SEED_ADMIN_PASSWORD}
+      NEXUS_E2E_PUBLIC_KEY: ${NEXUS_E2E_PUBLIC_KEY}
+      PYTHONPATH: /app
+    volumes:
+      - ../agent:/app/agent:ro
+      - ../tests/e2e:/app/tests/e2e:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [private]
+  e2e-browser-agent:
+    profiles: [tools]
+    extends:
+      service: e2e-runner
+    command: [python, /app/tests/e2e/browser_agent.py]

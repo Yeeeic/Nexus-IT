@@ -1,0 +1,22 @@
+==================================================================
+           NEXUS IT — AGENTE DE MONITOREO WINDOWS
+==================================================================
+
+Para instalar con doble clic, use nexus-agent-setup.exe.
+Para actualización y rollback con paquete ZIP, lea INSTALL.md.
+
+El agente requiere Windows 10 LTSC/ESU, Windows 11, o Windows Server 2016
+o posterior, en arquitectura x64.
+
+No requiere Python instalado en el sistema destino: el paquete incluye
+un runtime embebido autocontenido.
+
+INSTRUCCIONES RAPIDAS (.EXE):
+1. Descargue nexus-agent-setup.exe desde la consola autenticada de NEXUS IT.
+2. Enrole el dispositivo en la consola para obtener el ID y el token.
+3. Verifique el SHA-256 publicado y ejecute el archivo con doble clic.
+
+El token se le pedira una sola vez durante la instalacion.
+Nunca lo guarde en un archivo de texto ni lo comparta.
+
+Ver INSTALL.md para instalación ZIP, actualización, rollback y desinstalación.
