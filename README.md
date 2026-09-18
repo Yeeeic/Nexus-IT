@@ -25,7 +25,7 @@ Plataforma de monitoreo y soporte técnico para administrar equipos, alertas y s
 
 ## Estado
 
-Proyecto en desarrollo presentado como portafolio. Incluye pruebas automatizadas y documentación del sistema.
+Proyecto en desarrollo. Incluye pruebas automatizadas y documentación del sistema.
 
 Las vistas de pantalla remota y terminal son demostraciones visuales. No controlan equipos ni ejecutan comandos libres.
 
